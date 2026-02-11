@@ -1,3 +1,5 @@
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 import streamlit as st
 from ultralytics import YOLO
 from PIL import Image
@@ -64,7 +66,7 @@ evaluates severity, and provides **reconstruction & maintenance guidance**.
 @st.cache_resource
 def load_model():
     return YOLO("best.pt")
-
+    
 model = load_model()
 
 # ---------------- HELPER FUNCTIONS ----------------
