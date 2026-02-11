@@ -1,8 +1,9 @@
 import os
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
 import streamlit as st
 from ultralytics import YOLO
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 import tempfile
 from datetime import datetime
 
@@ -34,17 +35,11 @@ st.markdown("""
     border-radius: 22px;
     box-shadow: 0px 12px 30px rgba(0,0,0,0.12);
 }
-h1 {
-    color: #0d47a1;
-    text-align: center;
-}
-h2, h3 {
-    color: #1b5e20;
-}
+h1 { color: #0d47a1; text-align: center; }
+h2, h3 { color: #1b5e20; }
 .low { color: #2e7d32; font-weight: bold; }
 .moderate { color: #ef6c00; font-weight: bold; }
 .severe { color: #c62828; font-weight: bold; }
-
 .report-box {
     background-color: #f1f8ff;
     padding: 18px;
@@ -65,9 +60,15 @@ evaluates severity, and provides **reconstruction & maintenance guidance**.
 # ---------------- LOAD MODEL ----------------
 @st.cache_resource
 def load_model():
-    return YOLO("best.pt")
-    
+    try:
+        return YOLO("best.pt")
+    except Exception as e:
+        st.error(f"Error loading model: {e}")
+        return None
+
 model = load_model()
+if model is None:
+    st.stop()  # Stop app if model not loaded
 
 # ---------------- HELPER FUNCTIONS ----------------
 def assess_severity(conf):
@@ -125,27 +126,46 @@ def reconstruction_steps(severity):
 """
     }[severity]
 
-# ---------------- IMAGE UPLOAD ----------------
+# ---------------- IMAGE UPLOAD & ANALYSIS ----------------
 uploaded_file = st.file_uploader(
     "📤 Upload a road surface image",
     type=["jpg", "jpeg", "png"]
 )
 
 if uploaded_file:
-    image = Image.open(uploaded_file).convert("RGB")
-    st.image(image, caption="Uploaded Image", use_container_width=True)
+    try:
+        image = Image.open(uploaded_file).convert("RGB")
 
-    if st.button("🔍 Analyze Road Condition"):
-        with st.spinner("Running intelligent analysis..."):
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
-                image.save(tmp.name)
-                img_path = tmp.name
+        # Resize large images for YOLO
+        max_size = (1024, 1024)
+        image.thumbnail(max_size)
 
-            st.session_state.results = model(img_path)
-            st.session_state.annotated = Image.fromarray(
-                st.session_state.results[0].plot()
-            )
-            st.session_state.analysis_done = True
+        st.image(image, caption="Uploaded Image", use_container_width=True)
+
+        if st.button("🔍 Analyze Road Condition"):
+            if model is None:
+                st.error("Model not loaded.")
+            else:
+                with st.spinner("Running intelligent analysis..."):
+                    try:
+                        # Save temp image
+                        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+                            image.save(tmp.name)
+                            img_path = tmp.name
+
+                        # Run YOLO inference
+                        st.session_state.results = model(img_path)
+                        st.session_state.annotated = Image.fromarray(
+                            st.session_state.results[0].plot()
+                        )
+                        st.session_state.analysis_done = True
+                    except Exception as e:
+                        st.error(f"Error during analysis: {e}")
+
+    except UnidentifiedImageError:
+        st.error("⚠️ Uploaded file is not a valid image. Please upload JPG, JPEG, or PNG.")
+    except Exception as e:
+        st.error(f"Unexpected error: {e}")
 
 # ---------------- DISPLAY RESULTS ----------------
 if st.session_state.analysis_done:
